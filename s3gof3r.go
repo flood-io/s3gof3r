@@ -8,7 +8,6 @@ import (
 	"log"
 	"os"
 	"regexp"
-	"time"
 )
 
 const versionParam = "versionId"
@@ -74,9 +73,6 @@ var DefaultConfig = &Config{
 	Scheme:      "https",
 	Client:      ClientWithTimeout(defaultClientTimeout),
 }
-
-// http client timeout
-const defaultClientTimeout = 5 * time.Second
 
 // Bucket returns a bucket on s3
 // Bucket Config is initialized to DefaultConfig
