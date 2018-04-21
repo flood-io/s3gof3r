@@ -12,10 +12,14 @@ import (
 // Keys for an Amazon Web Services account.
 // Used for signing http requests.
 type Keys struct {
-	AccessKey     string
-	SecretKey     string
-	SecurityToken string
+	accessKeyID     string
+	secretAccessKey string
+	sessionToken    string
 }
+
+func (k *Keys) AccessKeyID() string     { return k.accessKeyID }
+func (k *Keys) SecretAccessKey() string { return k.secretAccessKey }
+func (k *Keys) SessionToken() string    { return k.sessionToken }
 
 type mdCreds struct {
 	Code            string
@@ -70,9 +74,9 @@ func InstanceKeys() (keys Keys, err error) {
 		return
 	}
 	keys = Keys{
-		AccessKey:     creds.AccessKeyID,
-		SecretKey:     creds.SecretAccessKey,
-		SecurityToken: creds.Token,
+		accessKeyID:     creds.AccessKeyID,
+		secretAccessKey: creds.SecretAccessKey,
+		sessionToken:    creds.Token,
 	}
 
 	return
@@ -81,11 +85,11 @@ func InstanceKeys() (keys Keys, err error) {
 // EnvKeys Reads the AWS keys from the environment
 func EnvKeys() (keys Keys, err error) {
 	keys = Keys{
-		AccessKey:     os.Getenv("AWS_ACCESS_KEY_ID"),
-		SecretKey:     os.Getenv("AWS_SECRET_ACCESS_KEY"),
-		SecurityToken: os.Getenv("AWS_SECURITY_TOKEN"),
+		accessKeyID:     os.Getenv("AWS_ACCESS_KEY_ID"),
+		secretAccessKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
+		sessionToken:    os.Getenv("AWS_SESSION_TOKEN"),
 	}
-	if keys.AccessKey == "" || keys.SecretKey == "" {
+	if keys.accessKeyID == "" || keys.secretAccessKey == "" {
 		err = fmt.Errorf("keys not set in environment: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY")
 	}
 	return

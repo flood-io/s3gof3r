@@ -27,10 +27,9 @@ var ignoredHeaders = map[string]bool{
 }
 
 type signer struct {
-	Time    time.Time
-	Request *http.Request
-	Region  string
-	Keys    Keys
+	Time     time.Time
+	Request  *http.Request
+	S3Config S3ConfigSource
 
 	credentialString string
 	signedHeaders    string
@@ -41,25 +40,8 @@ type signer struct {
 	stringToSign     string
 }
 
-// Sign signs the http.Request
-func (b *Bucket) Sign(req *http.Request) {
-	if req.Header == nil {
-		req.Header = http.Header{}
-	}
-	if b.S3.Keys.SecurityToken != "" {
-		req.Header.Set("X-Amz-Security-Token", b.S3.Keys.SecurityToken)
-	}
-	req.Header.Set("User-Agent", "S3Gof3r")
-	s := &signer{
-		Time:    time.Now(),
-		Request: req,
-		Region:  b.S3.Region(),
-		Keys:    b.S3.Keys,
-	}
-	s.sign()
-}
-
 func (s *signer) sign() {
+	s.addSessionToken()
 	s.buildTime()
 	s.buildCredentialString()
 	s.buildCanonicalHeaders()
@@ -67,11 +49,18 @@ func (s *signer) sign() {
 	s.buildStringToSign()
 	s.buildSignature()
 	parts := []string{
-		prefix + " Credential=" + s.Keys.AccessKey + "/" + s.credentialString,
+		prefix + " Credential=" + s.S3Config.AccessKeyID() + "/" + s.credentialString,
 		"SignedHeaders=" + s.signedHeaders,
 		"Signature=" + s.signature,
 	}
 	s.Request.Header.Set("Authorization", strings.Join(parts, ","))
+}
+
+func (s *signer) addSessionToken() {
+	if sessionToken := s.S3Config.SessionToken(); sessionToken != "" {
+		s.Request.Header.Set("X-Amz-Security-Token", sessionToken)
+	}
+
 }
 
 func (s *signer) buildTime() {
@@ -81,7 +70,7 @@ func (s *signer) buildTime() {
 func (s *signer) buildCredentialString() {
 	s.credentialString = strings.Join([]string{
 		s.Time.UTC().Format(shortDate),
-		s.Region,
+		s.S3Config.Region(),
 		"s3",
 		"aws4_request",
 	}, "/")
@@ -148,9 +137,9 @@ func (s *signer) buildStringToSign() {
 }
 
 func (s *signer) buildSignature() {
-	secret := s.Keys.SecretKey
+	secret := s.S3Config.SecretAccessKey()
 	date := hmacSign([]byte("AWS4"+secret), []byte(s.Time.UTC().Format(shortDate)))
-	region := hmacSign(date, []byte(s.Region))
+	region := hmacSign(date, []byte(s.S3Config.Region()))
 	service := hmacSign(region, []byte("s3"))
 	credentials := hmacSign(service, []byte("aws4_request"))
 	signature := hmacSign(credentials, []byte(s.stringToSign))

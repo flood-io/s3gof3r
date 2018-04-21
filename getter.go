@@ -17,10 +17,13 @@ import (
 const qWaitMax = 2
 
 type getter struct {
-	url   url.URL
-	b     *Bucket
-	bufsz int64
-	err   error
+	url    url.URL
+	bucket *Bucket
+	bufsz  int64
+	err    error
+
+	ntry        int
+	concurrency int
 
 	chunkID    int
 	rChunk     *chunk
@@ -38,7 +41,6 @@ type getter struct {
 	sp *bp
 
 	closed bool
-	c      *Config
 
 	md5  hash.Hash
 	cIdx int64
@@ -52,20 +54,19 @@ type chunk struct {
 	b      []byte
 }
 
-func newGetter(getURL url.URL, c *Config, b *Bucket) (io.ReadCloser, http.Header, error) {
+func newGetter(getURL url.URL, bucket *Bucket) (io.ReadCloser, http.Header, error) {
 	g := new(getter)
 	g.url = getURL
-	g.c, g.b = new(Config), new(Bucket)
-	*g.c, *g.b = *c, *b
-	g.bufsz = max64(c.PartSize, 1)
-	g.c.NTry = max(c.NTry, 1)
-	g.c.Concurrency = max(c.Concurrency, 1)
+	g.bucket = bucket
+
+	g.bufsz = max64(bucket.Config.PartSize, 1)
+	g.ntry = max(bucket.Config.NTry, 1)
+	g.concurrency = max(bucket.Config.Concurrency, 1)
 
 	g.getCh = make(chan *chunk)
 	g.readCh = make(chan *chunk)
 	g.quit = make(chan struct{})
 	g.qWait = make(map[int]*chunk)
-	g.b = b
 	g.md5 = md5.New()
 	g.cond = sync.Cond{L: &sync.Mutex{}}
 
@@ -91,7 +92,7 @@ func newGetter(getURL url.URL, c *Config, b *Bucket) (io.ReadCloser, http.Header
 
 	g.sp = bufferPool(g.bufsz)
 
-	for i := 0; i < g.c.Concurrency; i++ {
+	for i := 0; i < g.concurrency; i++ {
 		go g.worker()
 	}
 	go g.initChunks()
@@ -99,7 +100,7 @@ func newGetter(getURL url.URL, c *Config, b *Bucket) (io.ReadCloser, http.Header
 }
 
 func (g *getter) retryRequest(method, urlStr string, body io.ReadSeeker) (resp *http.Response, err error) {
-	for i := 0; i < g.c.NTry; i++ {
+	for i := 0; i < g.ntry; i++ {
 		var req *http.Request
 		req, err = http.NewRequest(method, urlStr, body)
 		if err != nil {
@@ -110,8 +111,8 @@ func (g *getter) retryRequest(method, urlStr string, body io.ReadSeeker) (resp *
 			req.Header.Set(sha256Header, shaReader(body))
 		}
 
-		g.b.Sign(req)
-		resp, err = g.c.Client.Do(req)
+		g.bucket.Sign(req)
+		resp, err = g.bucket.Do(req)
 		if err == nil && resp.StatusCode == 500 {
 			time.Sleep(time.Duration(math.Exp2(float64(i))) * 100 * time.Millisecond) // exponential back-off
 			continue
@@ -159,7 +160,7 @@ func (g *getter) worker() {
 func (g *getter) retryGetChunk(c *chunk) {
 	var err error
 	c.b = <-g.sp.get
-	for i := 0; i < g.c.NTry; i++ {
+	for i := 0; i < g.ntry; i++ {
 		err = g.getChunk(c)
 		if err == nil {
 			return
@@ -182,8 +183,8 @@ func (g *getter) getChunk(c *chunk) error {
 		return err
 	}
 	r.Header = c.header
-	g.b.Sign(r)
-	resp, err := g.c.Client.Do(r)
+	g.bucket.Sign(r)
+	resp, err := g.bucket.Do(r)
 	if err != nil {
 		return err
 	}
@@ -273,7 +274,7 @@ func (g *getter) nextChunk() (*chunk, error) {
 			g.qWaitLen--
 			g.cond.L.Unlock()
 			g.cond.Signal() // wake up waiting worker goroutine
-			if g.c.Md5Check {
+			if g.bucket.Config.Md5Check {
 				if _, err := g.md5.Write(c.b[:c.size]); err != nil {
 					return nil, err
 				}
@@ -307,7 +308,7 @@ func (g *getter) Close() error {
 	if g.bytesRead != g.contentLen {
 		return fmt.Errorf("read error: %d bytes read. expected: %d", g.bytesRead, g.contentLen)
 	}
-	if g.c.Md5Check {
+	if g.bucket.Config.Md5Check {
 		if err := g.checkMd5(); err != nil {
 			return err
 		}
@@ -318,7 +319,7 @@ func (g *getter) Close() error {
 func (g *getter) checkMd5() (err error) {
 	calcMd5 := fmt.Sprintf("%x", g.md5.Sum(nil))
 	md5Path := fmt.Sprint(".md5", g.url.Path, ".md5")
-	md5Url, err := g.b.url(md5Path, g.c)
+	md5Url, err := g.bucket.url(md5Path)
 	if err != nil {
 		return err
 	}

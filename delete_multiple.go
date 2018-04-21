@@ -39,12 +39,12 @@ type DeleteResult struct {
 	Errors  []DeleteError   `xml:"Error"`
 }
 
-func deleteMultiple(c *Config, b *Bucket, quiet bool, keys []string) (DeleteResult, error) {
+func deleteMultiple(bucket *Bucket, quiet bool, keys []string) (DeleteResult, error) {
 	if len(keys) == 0 {
 		return DeleteResult{}, nil
 	}
 
-	u, err := b.url("", c)
+	u, err := bucket.url("")
 	if err != nil {
 		return DeleteResult{}, err
 	}
@@ -74,9 +74,9 @@ func deleteMultiple(c *Config, b *Bucket, quiet bool, keys []string) (DeleteResu
 		Header:        make(http.Header),
 	}
 	r.Header.Set(md5Header, base64.StdEncoding.EncodeToString(md5sum[:]))
-	b.Sign(&r)
+	bucket.Sign(&r)
 
-	resp, err := b.conf().Do(&r)
+	resp, err := bucket.Do(&r)
 	if err != nil {
 		return DeleteResult{}, err
 	}

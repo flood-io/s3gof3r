@@ -189,7 +189,7 @@ type ListObjectsResult struct {
 
 func listObjects(c *Config, b *Bucket, opts listObjectsOptions) (result *listBucketResult, err error) {
 	result = new(listBucketResult)
-	u, err := b.url("", c)
+	u, err := b.url("")
 	if err != nil {
 		return nil, err
 	}
@@ -213,7 +213,7 @@ func listObjects(c *Config, b *Bucket, opts listObjectsOptions) (result *listBuc
 	}
 	b.Sign(&r)
 
-	resp, err := b.conf().Do(&r)
+	resp, err := b.Do(&r)
 	if err != nil {
 		return nil, err
 	}

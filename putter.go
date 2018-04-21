@@ -47,10 +47,10 @@ type part struct {
 }
 
 type putter struct {
-	url url.URL
-	b   *Bucket
-	c   *Config
+	url    url.URL
+	bucket *Bucket
 
+	ntry       int
 	bufsz      int64
 	buf        []byte
 	bufbytes   int // bytes written to current buffer
@@ -79,19 +79,20 @@ type putter struct {
 // See http://docs.amazonwebservices.com/AmazonS3/latest/dev/mpuoverview.html.
 // The initial request returns an UploadId that we use to identify
 // subsequent PUT requests.
-func newPutter(url url.URL, h http.Header, c *Config, b *Bucket) (p *putter, err error) {
+func newPutter(url url.URL, h http.Header, bucket *Bucket) (p *putter, err error) {
 	p = new(putter)
 	p.url = url
-	p.c, p.b = new(Config), new(Bucket)
-	*p.c, *p.b = *c, *b
-	p.c.Concurrency = max(c.Concurrency, 1)
-	p.c.NTry = max(c.NTry, 1)
-	p.bufsz = max64(minPartSize, c.PartSize)
+
+	concurrency := max(bucket.Config.Concurrency, 1)
+	p.ntry = max(bucket.Config.NTry, 1)
+	p.bufsz = max64(minPartSize, bucket.Config.PartSize)
+
 	resp, err := p.retryRequest("POST", url.String()+"?uploads", nil, h)
 	if err != nil {
 		return nil, err
 	}
 	defer checkClose(resp.Body, err)
+
 	if resp.StatusCode != 200 {
 		return nil, newRespError(resp)
 	}
@@ -100,7 +101,7 @@ func newPutter(url url.URL, h http.Header, c *Config, b *Bucket) (p *putter, err
 		return nil, err
 	}
 	p.ch = make(chan *part)
-	for i := 0; i < p.c.Concurrency; i++ {
+	for i := 0; i < concurrency; i++ {
 		go p.worker()
 	}
 	p.md5OfParts = md5.New()
@@ -179,7 +180,7 @@ func (p *putter) worker() {
 func (p *putter) retryPutPart(part *part) {
 	defer p.wg.Done()
 	var err error
-	for i := 0; i < p.c.NTry; i++ {
+	for i := 0; i < p.ntry; i++ {
 		err = p.putPart(part)
 		if err == nil {
 			p.sp.give <- part.b
@@ -207,8 +208,9 @@ func (p *putter) putPart(part *part) error {
 	req.ContentLength = part.len
 	req.Header.Set(md5Header, part.md5)
 	req.Header.Set(sha256Header, part.sha256)
-	p.b.Sign(req)
-	resp, err := p.c.Client.Do(req)
+
+	p.bucket.Sign(req)
+	resp, err := p.bucket.Do(req)
 	if err != nil {
 		return err
 	}
@@ -314,8 +316,8 @@ func (p *putter) Close() (err error) {
 		return fmt.Errorf("MD5 hash of part hashes comparison failed. Hash from multipart complete header: %s."+
 			" Calculated multipart hash: %s.", remoteMd5ofParts, calculatedMd5ofParts)
 	}
-	if p.c.Md5Check {
-		for i := 0; i < p.c.NTry; i++ {
+	if p.bucket.Config.Md5Check {
+		for i := 0; i < p.ntry; i++ {
 			if err = p.putMd5(); err == nil {
 				break
 			}
@@ -366,7 +368,7 @@ func (p *putter) putMd5() (err error) {
 	calcMd5 := fmt.Sprintf("%x", p.md5.Sum(nil))
 	md5Reader := strings.NewReader(calcMd5)
 	md5Path := fmt.Sprint(".md5", p.url.Path, ".md5")
-	md5Url, err := p.b.url(md5Path, p.c)
+	md5Url, err := p.bucket.url(md5Path)
 	if err != nil {
 		return err
 	}
@@ -376,8 +378,8 @@ func (p *putter) putMd5() (err error) {
 	if err != nil {
 		return
 	}
-	p.b.Sign(r)
-	resp, err := p.c.Client.Do(r)
+	p.bucket.Sign(r)
+	resp, err := p.bucket.Do(r)
 	if err != nil {
 		return
 	}
@@ -391,7 +393,7 @@ func (p *putter) putMd5() (err error) {
 var err500 = errors.New("received 500 from server")
 
 func (p *putter) retryRequest(method, urlStr string, body io.ReadSeeker, h http.Header) (resp *http.Response, err error) {
-	for i := 0; i < p.c.NTry; i++ {
+	for i := 0; i < p.ntry; i++ {
 		var req *http.Request
 		req, err = http.NewRequest(method, urlStr, body)
 		if err != nil {
@@ -407,8 +409,8 @@ func (p *putter) retryRequest(method, urlStr string, body io.ReadSeeker, h http.
 			req.Header.Set(sha256Header, shaReader(body))
 		}
 
-		p.b.Sign(req)
-		resp, err = p.c.Client.Do(req)
+		p.bucket.Sign(req)
+		resp, err = p.bucket.Do(req)
 		if err == nil && resp.StatusCode == 500 {
 			err = err500
 			time.Sleep(time.Duration(math.Exp2(float64(i))) * 100 * time.Millisecond) // exponential back-off
