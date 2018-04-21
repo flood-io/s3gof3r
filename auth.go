@@ -33,7 +33,7 @@ type mdCreds struct {
 
 // InstanceKeys Requests the AWS keys from the instance-based metadata on EC2
 // Assumes only one IAM role.
-func InstanceKeys() (keys Keys, err error) {
+func InstanceKeys() (keys *Keys, err error) {
 
 	rolePath := "http://169.254.169.254/latest/meta-data/iam/security-credentials/"
 	var creds mdCreds
@@ -73,7 +73,7 @@ func InstanceKeys() (keys Keys, err error) {
 	if err = json.Unmarshal([]byte(metadata), &creds); err != nil {
 		return
 	}
-	keys = Keys{
+	keys = &Keys{
 		accessKeyID:     creds.AccessKeyID,
 		secretAccessKey: creds.SecretAccessKey,
 		sessionToken:    creds.Token,
@@ -83,8 +83,8 @@ func InstanceKeys() (keys Keys, err error) {
 }
 
 // EnvKeys Reads the AWS keys from the environment
-func EnvKeys() (keys Keys, err error) {
-	keys = Keys{
+func EnvKeys() (keys *Keys, err error) {
+	keys = &Keys{
 		accessKeyID:     os.Getenv("AWS_ACCESS_KEY_ID"),
 		secretAccessKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
 		sessionToken:    os.Getenv("AWS_SESSION_TOKEN"),
