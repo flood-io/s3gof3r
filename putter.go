@@ -83,6 +83,8 @@ func newPutter(url url.URL, h http.Header, bucket *Bucket) (p *putter, err error
 	p = new(putter)
 	p.url = url
 
+	p.bucket = bucket
+
 	concurrency := max(bucket.Config.Concurrency, 1)
 	p.ntry = max(bucket.Config.NTry, 1)
 	p.bufsz = max64(minPartSize, bucket.Config.PartSize)
