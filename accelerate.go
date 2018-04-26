@@ -5,17 +5,25 @@ import (
 	"time"
 )
 
+const defaultRegion = "us-west-2"
+
 type S3Accelerated struct {
+	region string
 	*Keys
 }
 
 func NewAcceleratedS3(k *Keys) (a *S3Accelerated, err error) {
-	a = &S3Accelerated{Keys: k}
+	a = &S3Accelerated{Keys: k, region: defaultRegion}
+	return
+}
+
+func NewAcceleratedS3InRegion(k *Keys, region string) (a *S3Accelerated, err error) {
+	a = &S3Accelerated{Keys: k, region: region}
 	return
 }
 
 func (a *S3Accelerated) Region() string {
-	return "us-west-2"
+	return a.region
 }
 
 func (a *S3Accelerated) Domain() string {
